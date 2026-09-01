@@ -1,0 +1,83 @@
+{
+  "id": "javascript-basics",
+  "title": "JavaScript 基础",
+  "description": "通过六道题复习 JavaScript 的类型、比较、数组与 JSON 基础。",
+  "version": 1,
+  "questions": [
+    {
+      "id": "q001",
+      "type": "single",
+      "stemMd": "`const` 声明的变量绑定具有什么特点？",
+      "options": [
+        { "id": "A", "text": "可以在同一作用域重复声明" },
+        { "id": "B", "text": "绑定不能被重新赋值" },
+        { "id": "C", "text": "对象内部属性也永远不能修改" },
+        { "id": "D", "text": "会自动成为全局变量" }
+      ],
+      "correctOptionIds": ["B"],
+      "explanationMd": "`const` 禁止重新赋值变量绑定，但如果绑定的是对象，对象内部的可变属性仍可修改。常见误区是把绑定不可变理解为对象完全不可变。"
+    },
+    {
+      "id": "q002",
+      "type": "single",
+      "stemMd": "下面哪个运算符会在比较时同时检查值和类型？",
+      "options": [
+        { "id": "A", "text": "==" },
+        { "id": "B", "text": "=" },
+        { "id": "C", "text": "===" },
+        { "id": "D", "text": "!=" }
+      ],
+      "correctOptionIds": ["C"],
+      "explanationMd": "严格相等运算符 `===` 不执行隐式类型转换，因此会同时比较类型和值。`==` 和 `!=` 可能先转换类型，而 `=` 是赋值运算符。"
+    },
+    {
+      "id": "q003",
+      "type": "multiple",
+      "stemMd": "哪些数组方法在正常使用时会返回新数组，而不会直接修改原数组？",
+      "options": [
+        { "id": "A", "text": "map" },
+        { "id": "B", "text": "filter" },
+        { "id": "C", "text": "push" },
+        { "id": "D", "text": "sort" }
+      ],
+      "correctOptionIds": ["A", "B"],
+      "explanationMd": "`map` 和 `filter` 都返回新数组。`push` 会向原数组追加元素，`sort` 默认也会就地重排原数组；把 `sort` 当成纯函数是常见错误。"
+    },
+    {
+      "id": "q004",
+      "type": "multiple",
+      "stemMd": "下面哪些是 JavaScript 的原始值类型？",
+      "options": [
+        { "id": "A", "text": "string" },
+        { "id": "B", "text": "number" },
+        { "id": "C", "text": "boolean" },
+        { "id": "D", "text": "object" },
+        { "id": "E", "text": "symbol" }
+      ],
+      "correctOptionIds": ["A", "B", "C", "E"],
+      "explanationMd": "字符串、数字、布尔值和 Symbol 都是原始值类型；`object` 表示对象类别，不是原始值类型。除此之外，`undefined`、`bigint` 和 `null` 也属于原始值。"
+    },
+    {
+      "id": "q005",
+      "type": "judgment",
+      "stemMd": "判断：标准 JSON 文本允许使用 `//` 添加行注释。",
+      "options": [
+        { "id": "true", "text": "正确" },
+        { "id": "false", "text": "错误" }
+      ],
+      "correctOptionIds": ["false"],
+      "explanationMd": "标准 JSON 不支持注释，包含 `//` 的内容会使 `JSON.parse` 解析失败。不要把 JavaScript 对象字面量支持的语法误认为 JSON 语法。"
+    },
+    {
+      "id": "q006",
+      "type": "judgment",
+      "stemMd": "判断：表达式 `typeof null` 的结果是字符串 `\"object\"`。",
+      "options": [
+        { "id": "true", "text": "正确" },
+        { "id": "false", "text": "错误" }
+      ],
+      "correctOptionIds": ["true"],
+      "explanationMd": "这是 JavaScript 长期保留的历史行为：`typeof null` 返回 `\"object\"`。但 `null` 本身仍是原始值，而不是真正的对象。"
+    }
+  ]
+}

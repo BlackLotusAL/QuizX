@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quizx.local/schemas/question-bank.json",
+  "title": "QuizX question bank",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "description", "version", "questions"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "title": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "description": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/question" }
+    }
+  },
+  "$defs": {
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "text": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "stemMd",
+        "options",
+        "correctOptionIds",
+        "explanationMd"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "type": {
+          "enum": ["single", "multiple", "judgment"]
+        },
+        "stemMd": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/option" }
+        },
+        "correctOptionIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "explanationMd": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "single" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "correctOptionIds": { "type": "array", "minItems": 1, "maxItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "multiple" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "correctOptionIds": { "type": "array", "minItems": 2 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "judgment" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "options": { "type": "array", "minItems": 2, "maxItems": 2 },
+              "correctOptionIds": { "type": "array", "minItems": 1, "maxItems": 1 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
