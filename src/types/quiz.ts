@@ -30,10 +30,17 @@ export interface QuestionSummary {
   questionCount: number;
 }
 
+export interface QuestionSection {
+  type: QuestionType;
+  startPosition: number;
+  count: number;
+}
+
 export interface QuestionPayload {
   bank: Pick<QuestionBank, "id" | "title" | "version">;
   position: number;
   total: number;
+  sections: QuestionSection[];
   question: Pick<Question, "id" | "type" | "stemMd" | "options">;
 }
 
@@ -62,10 +69,21 @@ export interface ApiError {
   };
 }
 
+export interface QuestionAttempt {
+  questionId: string;
+  selectedOptionIds: string[];
+  result?: AnswerResult;
+}
+
 export interface ProgressEntry {
   bankVersion: number;
-  nextPosition: number;
-  completed: boolean;
+  currentPosition: number;
+  attempts: Record<string, QuestionAttempt>;
 }
 
 export type ProgressState = Record<string, ProgressEntry>;
+
+export interface PersistedProgress {
+  schemaVersion: 2;
+  banks: ProgressState;
+}

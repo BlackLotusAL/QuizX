@@ -31,7 +31,9 @@ export function BankListPage({ initialNotice }: BankListPageProps) {
       const reconciled = reconcileProgress(loadedBanks);
       setBanks(loadedBanks);
       setProgress(reconciled.progress);
-      if (reconciled.updatedBankIds.length > 0) {
+      if (reconciled.legacyReset) {
+        setNotice("题目导航已更新，将从第 1 题开始");
+      } else if (reconciled.updatedBankIds.length > 0) {
         setNotice("题库已更新，将从第 1 题开始");
       }
     } catch {
@@ -48,11 +50,10 @@ export function BankListPage({ initialNotice }: BankListPageProps) {
 
   function handleOpenBank(bank: QuestionSummary): void {
     const entry = progress[bank.id];
-    const nextPosition = entry && !entry.completed ? entry.nextPosition : 1;
     const nextProgress = setBankProgress(bank.id, {
       bankVersion: bank.version,
-      nextPosition,
-      completed: false,
+      currentPosition: entry?.currentPosition ?? 1,
+      attempts: entry?.attempts ?? {},
     });
     setProgress(nextProgress);
     router.push(`/practice/${encodeURIComponent(bank.id)}`);
@@ -102,11 +103,7 @@ export function BankListPage({ initialNotice }: BankListPageProps) {
         <section className="bank-list" aria-label="可用题库">
           {banks.map((bank) => {
             const entry = progress[bank.id];
-            const buttonText = !entry
-              ? "开始练习"
-              : entry.completed
-                ? "重新练习"
-                : "继续练习";
+            const buttonText = entry ? "继续练习" : "开始练习";
 
             return (
               <article className="bank-card" key={bank.id}>

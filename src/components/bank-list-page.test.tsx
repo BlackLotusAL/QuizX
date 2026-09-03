@@ -50,41 +50,49 @@ describe("BankListPage", () => {
     expect(await screen.findByRole("heading", { name: bank.title })).toBeInTheDocument();
   });
 
-  it("shows start, continue and restart labels from local progress", async () => {
+  it("shows start without progress and continue for every saved practice", async () => {
     vi.mocked(fetchBanks).mockResolvedValue([bank]);
     const { unmount } = render(<BankListPage />);
     expect(await screen.findByRole("button", { name: /开始练习/ })).toBeInTheDocument();
     unmount();
 
     localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-      [bank.id]: { bankVersion: 1, nextPosition: 3, completed: false },
-    }));
-    const continued = render(<BankListPage />);
-    expect(await screen.findByRole("button", { name: /继续练习/ })).toBeInTheDocument();
-    continued.unmount();
-
-    localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-      [bank.id]: { bankVersion: 1, nextPosition: 7, completed: true },
+      schemaVersion: 2,
+      banks: {
+        [bank.id]: {
+          bankVersion: 1,
+          currentPosition: 3,
+          attempts: { "2": { questionId: "q002", selectedOptionIds: ["A"] } },
+        },
+      },
     }));
     render(<BankListPage />);
-    const restart = await screen.findByRole("button", { name: /重新练习/ });
-    await userEvent.click(restart);
-    expect(push).toHaveBeenCalledWith("/practice/javascript-basics");
-    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")[bank.id]).toEqual({
-      bankVersion: 1,
-      nextPosition: 1,
-      completed: false,
-    });
+    expect(await screen.findByRole("button", { name: /继续练习/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /重新练习/ })).not.toBeInTheDocument();
   });
 
   it("clears stale progress and tells the user the bank changed", async () => {
     localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-      [bank.id]: { bankVersion: 99, nextPosition: 4, completed: false },
+      schemaVersion: 2,
+      banks: {
+        [bank.id]: { bankVersion: 99, currentPosition: 4, attempts: {} },
+      },
     }));
     vi.mocked(fetchBanks).mockResolvedValue([bank]);
 
     render(<BankListPage />);
     expect(await screen.findByText("题库已更新，将从第 1 题开始")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /开始练习/ })).toBeInTheDocument();
+  });
+
+  it("resets legacy progress and explains the navigation upgrade", async () => {
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify({
+      [bank.id]: { bankVersion: 1, nextPosition: 3, completed: false },
+    }));
+    vi.mocked(fetchBanks).mockResolvedValue([bank]);
+
+    render(<BankListPage />);
+    expect(await screen.findByText("题目导航已更新，将从第 1 题开始")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /开始练习/ })).toBeInTheDocument();
   });
 });

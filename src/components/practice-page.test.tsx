@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,21 +38,66 @@ const bank: QuestionSummary = {
   questionCount: 6,
 };
 
-function questionPayload(overrides: Partial<QuestionPayload> = {}): QuestionPayload {
-  return {
-    bank: { id: bank.id, title: bank.title, version: bank.version },
-    position: 1,
-    total: 6,
-    question: {
+const sections: QuestionPayload["sections"] = [
+  { type: "single", startPosition: 1, count: 2 },
+  { type: "judgment", startPosition: 3, count: 2 },
+  { type: "multiple", startPosition: 5, count: 2 },
+];
+
+function questionPayload(position = 1): QuestionPayload {
+  const questions: Record<number, QuestionPayload["question"]> = {
+    1: {
       id: "q001",
       type: "single",
-      stemMd: "测试题干",
+      stemMd: "第一题题干",
+      options: [{ id: "A", text: "选项 A" }, { id: "B", text: "选项 B" }],
+    },
+    2: {
+      id: "q002",
+      type: "single",
+      stemMd: "第二题题干",
+      options: [{ id: "A", text: "选项 A" }, { id: "B", text: "选项 B" }],
+    },
+    3: {
+      id: "q005",
+      type: "judgment",
+      stemMd: "第三题判断题",
+      options: [{ id: "true", text: "正确" }, { id: "false", text: "错误" }],
+    },
+    4: {
+      id: "q006",
+      type: "judgment",
+      stemMd: "第四题判断题",
+      options: [{ id: "true", text: "正确" }, { id: "false", text: "错误" }],
+    },
+    5: {
+      id: "q003",
+      type: "multiple",
+      stemMd: "第五题多选题",
       options: [
         { id: "A", text: "选项 A" },
         { id: "B", text: "选项 B" },
+        { id: "C", text: "选项 C" },
       ],
     },
-    ...overrides,
+    6: {
+      id: "q004",
+      type: "multiple",
+      stemMd: "第六题多选题",
+      options: [
+        { id: "A", text: "选项 A" },
+        { id: "B", text: "选项 B" },
+        { id: "C", text: "选项 C" },
+      ],
+    },
+  };
+
+  return {
+    bank: { id: bank.id, title: bank.title, version: bank.version },
+    position,
+    total: 6,
+    sections,
+    question: questions[position],
   };
 }
 
@@ -62,68 +107,94 @@ const wrongResult: AnswerResult = {
   explanationMd: "B 正确，A 是常见误区。",
 };
 
+function storeProgress(value: Record<string, unknown>): void {
+  localStorage.setItem(PROGRESS_KEY, JSON.stringify({ schemaVersion: 2, banks: value }));
+}
+
+function storedBank(): Record<string, unknown> | undefined {
+  const root = JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}");
+  return root.banks?.[bank.id];
+}
+
 beforeEach(() => {
   localStorage.clear();
   push.mockReset();
   replace.mockReset();
   vi.mocked(fetchBanks).mockReset().mockResolvedValue([bank]);
-  vi.mocked(fetchQuestion).mockReset().mockResolvedValue(questionPayload());
+  vi.mocked(fetchQuestion).mockReset().mockImplementation(
+    async (_bankId, position) => questionPayload(position),
+  );
   vi.mocked(submitAnswer).mockReset();
   window.scrollTo = vi.fn();
 });
 
 async function renderReadyPractice(): Promise<void> {
   render(<PracticePage bankId={bank.id} />);
-  await screen.findByText("测试题干");
+  await screen.findByText("第一题题干");
 }
 
 describe("PracticePage", () => {
-  it("uses radio selection, disables empty submit and locks after feedback", async () => {
-    vi.mocked(submitAnswer).mockResolvedValue(wrongResult);
+  it("shows type sections, global question numbers and bounded previous/next controls", async () => {
     await renderReadyPractice();
-    const user = userEvent.setup();
 
-    const submit = screen.getByRole("button", { name: "提交答案" });
-    expect(submit).toBeDisabled();
-
-    const optionA = screen.getByRole("radio", { name: /选项 A/ });
-    const optionB = screen.getByRole("radio", { name: /选项 B/ });
-    await user.click(optionA);
-    await user.click(optionB);
-    expect(optionA).not.toBeChecked();
-    expect(optionB).toBeChecked();
-
-    await user.click(optionA);
-    await user.click(submit);
-    expect(await screen.findByText("回答错误")).toBeInTheDocument();
-    expect(screen.getByText(/你的错选/)).toBeInTheDocument();
-    expect(screen.getByText(/正确答案/)).toBeInTheDocument();
-    expect(optionA).toBeDisabled();
-    expect(submit).toBeDisabled();
-    expect(screen.getByRole("button", { name: /下一题/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "单选题，第 1 题" })).toBeInTheDocument();
+    const navigator = screen.getByRole("complementary", { name: "题目导航" });
+    expect(within(navigator).getByRole("heading", { name: "单选题" })).toBeInTheDocument();
+    expect(within(navigator).getByRole("heading", { name: "判断题" })).toBeInTheDocument();
+    expect(within(navigator).getByRole("heading", { name: "多选题" })).toBeInTheDocument();
+    expect(within(navigator).getByRole("button", { name: "第 1 题，单选题，未作答" })).toHaveAttribute("aria-current", "step");
+    expect(screen.getByRole("button", { name: /上一题/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /下一题/ })).toBeEnabled();
+    expect(screen.queryByText("练习完成")).not.toBeInTheDocument();
   });
 
-  it("allows multiple checkbox selection and submits the complete set", async () => {
-    const multiplePayload = questionPayload({
-      position: 3,
-      question: {
-        id: "q003",
-        type: "multiple",
-        stemMd: "测试题干",
-        options: [
-          { id: "A", text: "选项 A" },
-          { id: "B", text: "选项 B" },
-          { id: "C", text: "选项 C" },
-        ],
-      },
+  it("persists a draft and submitted feedback while jumping and after remount", async () => {
+    vi.mocked(submitAnswer).mockResolvedValue(wrongResult);
+    const view = render(<PracticePage bankId={bank.id} />);
+    await screen.findByText("第一题题干");
+    const user = userEvent.setup();
+
+    const optionA = screen.getByRole("radio", { name: /选项 A/ });
+    await user.click(optionA);
+    expect(storedBank()).toMatchObject({
+      currentPosition: 1,
+      attempts: { "1": { questionId: "q001", selectedOptionIds: ["A"] } },
     });
-    vi.mocked(fetchQuestion).mockResolvedValue(multiplePayload);
+
+    const navigator = screen.getByRole("complementary", { name: "题目导航" });
+    await user.click(within(navigator).getByRole("button", { name: "第 3 题，判断题，未作答" }));
+    expect(await screen.findByText("第三题判断题")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "判断题，第 3 题" })).toBeInTheDocument();
+
+    await user.click(within(navigator).getByRole("button", { name: "第 1 题，单选题，已选择，未提交" }));
+    expect(await screen.findByText("第一题题干")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /选项 A/ })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "提交答案" }));
+    expect(await screen.findByText("回答错误")).toBeInTheDocument();
+    expect(storedBank()).toMatchObject({
+      attempts: { "1": { result: wrongResult } },
+    });
+    expect(screen.queryByRole("button", { name: "提交答案" })).not.toBeInTheDocument();
+
+    view.unmount();
+    render(<PracticePage bankId={bank.id} />);
+    expect(await screen.findByText("回答错误")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /选项 A/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /选项 A/ })).toBeDisabled();
+  });
+
+  it("allows multiple selection and submits the complete set", async () => {
+    storeProgress({
+      [bank.id]: { bankVersion: 1, currentPosition: 5, attempts: {} },
+    });
     vi.mocked(submitAnswer).mockResolvedValue({
       isCorrect: true,
       correctOptionIds: ["A", "B"],
       explanationMd: "A 与 B 正确。",
     });
-    await renderReadyPractice();
+    render(<PracticePage bankId={bank.id} />);
+    await screen.findByText("第五题多选题");
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("checkbox", { name: /选项 A/ }));
@@ -156,41 +227,28 @@ describe("PracticePage", () => {
     expect(await screen.findByText("回答错误")).toBeInTheDocument();
   });
 
-  it("keeps current feedback when next-question loading fails and advances only after retry", async () => {
-    const nextPayload = questionPayload({
-      position: 2,
-      question: {
-        id: "q002",
-        type: "single",
-        stemMd: "第二题题干",
-        options: [{ id: "A", text: "A" }, { id: "B", text: "B" }],
-      },
-    });
+  it("keeps the current draft when navigation fails and updates position only after retry", async () => {
     vi.mocked(fetchQuestion)
-      .mockResolvedValueOnce(questionPayload())
+      .mockResolvedValueOnce(questionPayload(1))
       .mockRejectedValueOnce(new Error("下一题加载失败，请重试"))
-      .mockResolvedValueOnce(nextPayload);
-    vi.mocked(submitAnswer).mockResolvedValue(wrongResult);
+      .mockResolvedValueOnce(questionPayload(2));
     await renderReadyPractice();
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("radio", { name: /选项 A/ }));
-    await user.click(screen.getByRole("button", { name: "提交答案" }));
-    await user.click(await screen.findByRole("button", { name: /下一题/ }));
+    await user.click(screen.getByRole("button", { name: /下一题/ }));
 
     expect(await screen.findByText("下一题加载失败，请重试")).toBeInTheDocument();
-    expect(screen.getByText("回答错误")).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")[bank.id].nextPosition).toBe(1);
+    expect(screen.getByText("第一题题干")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /选项 A/ })).toBeChecked();
+    expect(storedBank()).toMatchObject({ currentPosition: 1 });
 
-    await user.click(screen.getByRole("button", { name: /重试下一题/ }));
+    await user.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByText("第二题题干")).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")[bank.id].nextPosition).toBe(2);
+    expect(storedBank()).toMatchObject({ currentPosition: 2 });
   });
 
-  it("resets stale progress after a version conflict", async () => {
-    localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-      [bank.id]: { bankVersion: 1, nextPosition: 1, completed: false },
-    }));
+  it("resets saved attempts after a version conflict", async () => {
     vi.mocked(submitAnswer).mockRejectedValue(
       new ApiRequestError("题库已更新，将从第 1 题开始", 409, "BANK_VERSION_CHANGED"),
     );
@@ -203,47 +261,63 @@ describe("PracticePage", () => {
     expect(await screen.findByText("题库已更新，将从第 1 题开始")).toBeInTheDocument();
     expect(fetchBanks).toHaveBeenCalledTimes(2);
     expect(fetchQuestion).toHaveBeenLastCalledWith(bank.id, 1);
+    expect(storedBank()).toMatchObject({ currentPosition: 1, attempts: {} });
   });
 
-  it("marks completion only after the final completion action", async () => {
-    vi.mocked(fetchQuestion).mockResolvedValue(questionPayload({
-      position: 6,
-      question: {
-        id: "q006",
-        type: "judgment",
-        stemMd: "测试题干",
-        options: [{ id: "true", text: "正确" }, { id: "false", text: "错误" }],
+  it("clears only the current bank after confirmation and returns to the first question", async () => {
+    vi.mocked(fetchBanks).mockResolvedValue([
+      bank,
+      { id: "other", title: "其他", description: "描述", version: 1, questionCount: 2 },
+    ]);
+    storeProgress({
+      [bank.id]: {
+        bankVersion: 1,
+        currentPosition: 3,
+        attempts: {
+          "1": { questionId: "q001", selectedOptionIds: ["A"], result: wrongResult },
+          "3": { questionId: "q005", selectedOptionIds: ["false"] },
+        },
       },
-    }));
-    vi.mocked(submitAnswer).mockResolvedValue({
-      isCorrect: true,
-      correctOptionIds: ["true"],
-      explanationMd: "解析",
+      other: { bankVersion: 1, currentPosition: 2, attempts: {} },
     });
+    render(<PracticePage bankId={bank.id} />);
+    await screen.findByText("第三题判断题");
+    const user = userEvent.setup();
+    const navigator = screen.getByRole("complementary", { name: "题目导航" });
+
+    await user.click(within(navigator).getByRole("button", { name: "清空答题记录" }));
+    const confirmation = await screen.findByRole("dialog", { name: "清空这套题的答题记录？" });
+    await user.click(within(confirmation).getByRole("button", { name: "确认清空" }));
+
+    expect(await screen.findByText("第一题题干")).toBeInTheDocument();
+    const stored = JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}");
+    expect(stored.banks[bank.id]).toBeUndefined();
+    expect(stored.banks.other).toBeDefined();
+  });
+
+  it("opens the same grouped navigator from the mobile trigger", async () => {
     await renderReadyPractice();
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("radio", { name: "正确" }));
-    await user.click(screen.getByRole("button", { name: "提交答案" }));
-    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")[bank.id].completed).toBe(false);
-
-    await user.click(await screen.findByRole("button", { name: /完成练习/ }));
-    expect(await screen.findByRole("heading", { name: "练习完成" })).toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")[bank.id]).toEqual({
-      bankVersion: 1,
-      nextPosition: 7,
-      completed: true,
-    });
+    await user.click(screen.getByRole("button", { name: /题目导航.*1.*6/ }));
+    const dialog = await screen.findByRole("dialog", { name: "题目导航" });
+    expect(within(dialog).getByRole("heading", { name: "单选题" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "第 5 题，多选题，未作答" }));
+    expect(await screen.findByText("第五题多选题")).toBeInTheDocument();
+    expect(dialog).not.toHaveAttribute("open");
   });
 
   it("redirects a deleted bank and clears its local progress", async () => {
-    localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-      [bank.id]: { bankVersion: 1, nextPosition: 2, completed: false },
-    }));
+    storeProgress({
+      [bank.id]: { bankVersion: 1, currentPosition: 2, attempts: {} },
+    });
     vi.mocked(fetchBanks).mockResolvedValue([]);
 
     render(<PracticePage bankId={bank.id} />);
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/?notice=bank-not-found"));
-    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")).toEqual({});
+    expect(JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? "{}")).toEqual({
+      schemaVersion: 2,
+      banks: {},
+    });
   });
 });

@@ -14,16 +14,17 @@ async function chooseAndSubmit(
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => window.localStorage.clear());
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.clear());
 });
 
-test("API contracts expose only safe data and return specified errors", async ({ request }) => {
+test("API contracts expose grouped positions without leaking answers", async ({ request }) => {
   const banks = await request.get("/api/banks");
   expect(banks.status()).toBe(200);
   expect(banks.headers()["cache-control"]).toBe("no-store");
   const summaries = await banks.json();
   expect(summaries).toEqual([
-    expect.objectContaining({ id: bankId, version: 1, questionCount: 6 }),
+    expect.objectContaining({ id: bankId, version: 2, questionCount: 6 }),
   ]);
   expect(JSON.stringify(summaries)).not.toContain("correctOptionIds");
 
@@ -31,11 +32,21 @@ test("API contracts expose only safe data and return specified errors", async ({
   expect(question.status()).toBe(200);
   const questionBody = await question.json();
   expect(questionBody.question.id).toBe("q001");
+  expect(questionBody.sections).toEqual([
+    { type: "single", startPosition: 1, count: 2 },
+    { type: "judgment", startPosition: 3, count: 2 },
+    { type: "multiple", startPosition: 5, count: 2 },
+  ]);
   expect(questionBody.question.correctOptionIds).toBeUndefined();
   expect(questionBody.question.explanationMd).toBeUndefined();
 
+  const judgment = await request.get(`/api/banks/${bankId}/questions/3`);
+  expect((await judgment.json()).question.id).toBe("q005");
+  const multiple = await request.get(`/api/banks/${bankId}/questions/5`);
+  expect((await multiple.json()).question.id).toBe("q003");
+
   const invalid = await request.post(`/api/banks/${bankId}/questions/q001/answer`, {
-    data: { bankVersion: 1, selectedOptionIds: [] },
+    data: { bankVersion: 2, selectedOptionIds: [] },
   });
   expect(invalid.status()).toBe(400);
   expect((await invalid.json()).error.code).toBe("INVALID_ANSWER");
@@ -51,59 +62,99 @@ test("API contracts expose only safe data and return specified errors", async ({
   expect((await request.get("/data/question-banks/javascript-basics.json")).status()).toBe(404);
 });
 
-test("completes all question types, resumes progress and restarts without scores", async ({ page }) => {
+test("navigates every question type, restores feedback and clears the ongoing practice", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "选择题库，开始练习" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /开始练习/ })).toBeVisible();
   await page.getByRole("button", { name: /开始练习/ }).click();
 
   await expect(page).toHaveURL(new RegExp(`/practice/${bankId}$`));
-  await expect(page.getByRole("heading", { name: "第 1 题" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "单选题，第 1 题" })).toBeVisible();
+  const navigator = page.getByRole("complementary", { name: "题目导航" });
+  await expect(navigator.getByRole("heading", { name: "判断题" })).toBeVisible();
+  await expect(navigator.getByRole("heading", { name: "多选题" })).toBeVisible();
 
   const wrongOption = page.getByLabel(/可以在同一作用域重复声明/);
   await wrongOption.focus();
   await page.keyboard.press("Space");
   await page.getByRole("button", { name: "提交答案" }).click();
   await expect(page.getByText("回答错误")).toBeVisible();
-  await expect(page.getByText(/你的错选/)).toBeVisible();
-  await expect(page.getByText(/正确答案/)).toBeVisible();
+
+  await navigator.getByRole("button", { name: "第 3 题，判断题，未作答" }).click();
+  await expect(page.getByRole("heading", { name: "判断题，第 3 题" })).toBeVisible();
+  await navigator.getByRole("button", { name: "第 1 题，单选题，已提交" }).click();
+  await expect(page.getByText("回答错误")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "第 1 题" })).toBeVisible();
-  await expect(page.getByText("回答错误")).not.toBeVisible();
-  await chooseAndSubmit(page, [/绑定不能被重新赋值/]);
+  await expect(page.getByRole("heading", { name: "单选题，第 1 题" })).toBeVisible();
+  await expect(page.getByText("回答错误")).toBeVisible();
+  await expect(wrongOption).toBeChecked();
   await page.getByRole("button", { name: /下一题/ }).click();
 
-  await expect(page.getByRole("heading", { name: "第 2 题" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "单选题，第 2 题" })).toBeVisible();
   await page.getByRole("link", { name: /返回题库/ }).click();
   await expect(page.getByRole("button", { name: /继续练习/ })).toBeVisible();
   await page.getByRole("button", { name: /继续练习/ }).click();
-  await expect(page.getByRole("heading", { name: "第 2 题" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "单选题，第 2 题" })).toBeVisible();
 
   await chooseAndSubmit(page, ["==="]);
   await page.getByRole("button", { name: /下一题/ }).click();
-  await chooseAndSubmit(page, ["map", "filter"]);
-  await page.getByRole("button", { name: /下一题/ }).click();
-  await chooseAndSubmit(page, ["string", "number", "boolean", "symbol"]);
-  await page.getByRole("button", { name: /下一题/ }).click();
+  await expect(page.getByRole("heading", { name: "判断题，第 3 题" })).toBeVisible();
   await chooseAndSubmit(page, ["错误"]);
   await page.getByRole("button", { name: /下一题/ }).click();
   await chooseAndSubmit(page, ["正确"]);
+  await page.getByRole("button", { name: /下一题/ }).click();
+  await expect(page.getByRole("heading", { name: "多选题，第 5 题" })).toBeVisible();
+  await chooseAndSubmit(page, ["map", "filter"]);
+  await page.getByRole("button", { name: /下一题/ }).click();
+  await chooseAndSubmit(page, ["string", "number", "boolean", "symbol"]);
 
-  const progressBeforeCompletion = await page.evaluate((key) => localStorage.getItem(key), "quizx.progress");
-  expect(JSON.parse(progressBeforeCompletion ?? "{}")[bankId].completed).toBe(false);
+  await expect(navigator.getByText(/已提交\s*6\s*\/\s*6/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /下一题/ })).toBeDisabled();
+  await expect(page.getByText("练习完成")).toHaveCount(0);
 
-  await page.getByRole("button", { name: /完成练习/ }).click();
-  await expect(page.getByRole("heading", { name: "练习完成" })).toBeVisible();
-  await expect(page.getByText(/分数|成绩|正确率/)).not.toBeVisible();
+  await page.getByRole("link", { name: /返回题库/ }).click();
+  await expect(page.getByRole("button", { name: /继续练习/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /重新练习/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /继续练习/ }).click();
+  await expect(page.getByRole("heading", { name: "多选题，第 6 题" })).toBeVisible();
+  await expect(page.getByText("回答正确")).toBeVisible();
 
-  await page.locator(".completion-card").getByRole("link", { name: "返回题库" }).click();
-  await expect(page.getByRole("button", { name: /重新练习/ })).toBeVisible();
-  await page.getByRole("button", { name: /重新练习/ }).click();
-  await expect(page.getByRole("heading", { name: "第 1 题" })).toBeVisible();
+  await page.getByRole("complementary", { name: "题目导航" })
+    .getByRole("button", { name: "清空答题记录" })
+    .click();
+  const confirmation = page.getByRole("dialog", { name: "清空这套题的答题记录？" });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "确认清空" }).click();
+  await expect(page.getByRole("heading", { name: "单选题，第 1 题" })).toBeVisible();
+  await expect(page.getByText(/回答(正确|错误)/)).toHaveCount(0);
+
+  await page.getByRole("link", { name: /返回题库/ }).click();
+  await expect(page.getByRole("button", { name: /开始练习/ })).toBeVisible();
 });
 
-test("keeps answers and feedback when submit or next loading fails", async ({ page }) => {
+test("uses the grouped bottom-sheet navigator on a mobile viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/practice/${bankId}`);
+
+  await expect(page.getByRole("complementary", { name: "题目导航" })).toBeHidden();
+  const trigger = page.getByRole("button", { name: /题目导航.*1.*6/ });
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+
+  const dialog = page.getByRole("dialog", { name: "题目导航" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "单选题" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "判断题" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "多选题" })).toBeVisible();
+  await dialog.getByRole("button", { name: "第 5 题，多选题，未作答" }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("heading", { name: "多选题，第 5 题" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /上一题/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /下一题/ })).toBeVisible();
+});
+
+test("keeps answers and feedback when submit or navigation loading fails", async ({ page }) => {
   let answerAttempts = 0;
   let nextAttempts = 0;
 
@@ -147,11 +198,14 @@ test("keeps answers and feedback when submit or next loading fails", async ({ pa
   await expect(page.getByText("下一题暂时无法加载，请重试")).toBeVisible();
   await expect(page.getByText("回答正确")).toBeVisible();
 
-  const progressAfterFailure = await page.evaluate((key) => localStorage.getItem(key), "quizx.progress");
-  expect(JSON.parse(progressAfterFailure ?? "{}")[bankId].nextPosition).toBe(1);
+  const progressAfterFailure = await page.evaluate(
+    (key) => window.localStorage.getItem(key),
+    "quizx.progress",
+  );
+  expect(JSON.parse(progressAfterFailure ?? "{}").banks[bankId].currentPosition).toBe(1);
 
-  await page.getByRole("button", { name: /重试下一题/ }).click();
-  await expect(page.getByRole("heading", { name: "第 2 题" })).toBeVisible();
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByRole("heading", { name: "单选题，第 2 题" })).toBeVisible();
 });
 
 test("recovers from list, initial question and version-change failures", async ({ page }) => {
@@ -183,7 +237,7 @@ test("recovers from list, initial question and version-change failures", async (
   await page.goto(`/practice/${bankId}`);
   await expect(page.getByText(/Failed to fetch|题目加载失败/)).toBeVisible();
   await page.getByRole("button", { name: "重试" }).click();
-  await expect(page.getByRole("heading", { name: "第 1 题" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "单选题，第 1 题" })).toBeVisible();
   await page.unroute(`**/api/banks/${bankId}/questions/1`);
 
   await page.route(`**/api/banks/${bankId}/questions/q001/answer`, async (route) => {
@@ -198,7 +252,7 @@ test("recovers from list, initial question and version-change failures", async (
   await page.getByLabel(/绑定不能被重新赋值/).check();
   await page.getByRole("button", { name: "提交答案" }).click();
   await expect(page.getByText("题库已更新，将从第 1 题开始")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "第 1 题" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "单选题，第 1 题" })).toBeVisible();
 
   await page.unroute(`**/api/banks/${bankId}/questions/q001/answer`);
   await page.goto("/practice/missing-bank");

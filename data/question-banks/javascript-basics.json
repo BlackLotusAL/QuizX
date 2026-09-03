@@ -2,7 +2,7 @@
   "id": "javascript-basics",
   "title": "JavaScript 基础",
   "description": "通过六道题复习 JavaScript 的类型、比较、数组与 JSON 基础。",
-  "version": 1,
+  "version": 2,
   "questions": [
     {
       "id": "q001",

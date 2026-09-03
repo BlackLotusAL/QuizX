@@ -82,26 +82,34 @@ MVP 仅提供三个 JSON API：
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/api/banks` | 返回按标题排序的题库摘要 |
-| `GET` | `/api/banks/:bankId/questions/:position` | 按从 1 开始的位置返回无答案题目 |
+| `GET` | `/api/banks/:bankId/questions/:position` | 按单选、判断、多选的全局位置返回无答案题目与分区元数据 |
 | `POST` | `/api/banks/:bankId/questions/:questionId/answer` | 校验版本和答案并返回即时反馈 |
 
 所有错误都使用 `{ "error": { "code": "...", "message": "..." } }`。服务端不信任前端题型或选项状态，也不会保存作答记录。
 
-## 本地进度
+## 本地练习记录
 
-进度固定保存在 localStorage 的 `quizx.progress`，每个题库只记录：
+记录固定保存在 localStorage 的 `quizx.progress`。结构版本 2 保存当前位置、未提交草稿和已提交反馈，以便自由切题或刷新后恢复：
 
 ```json
 {
-  "example-bank": {
-    "bankVersion": 1,
-    "nextPosition": 2,
-    "completed": false
+  "schemaVersion": 2,
+  "banks": {
+    "example-bank": {
+      "bankVersion": 2,
+      "currentPosition": 2,
+      "attempts": {
+        "2": {
+          "questionId": "q002",
+          "selectedOptionIds": ["A"]
+        }
+      }
+    }
   }
 }
 ```
 
-答案、对错、解析、分数和统计都不会持久化。存储损坏或不可用时，应用会安全地从第 1 题开始。
+这些内容只保存在当前浏览器，服务端不保存个人作答记录；产品不生成分数、正确率或完成状态。存储损坏或不可用时，应用会安全地从第 1 题开始。
 
 ## 验收
 

@@ -5,18 +5,44 @@ import type {
   Question,
   QuestionBank,
   QuestionPayload,
+  QuestionSection,
   QuestionSummary,
 } from "@/types/quiz";
 import { loadQuestionBanks } from "@/lib/server/question-bank-loader.mjs";
+import { QUESTION_TYPE_ORDER } from "@/lib/question-types";
 
 const titleCollator = new Intl.Collator("zh-CN");
 
 export class QuestionBankRepository {
   private readonly banksById: Map<string, QuestionBank>;
+  private readonly orderedQuestionsByBankId: Map<string, Question[]>;
+  private readonly sectionsByBankId: Map<string, QuestionSection[]>;
   private readonly summaries: QuestionSummary[];
 
   constructor(banks: QuestionBank[]) {
     this.banksById = new Map(banks.map((bank) => [bank.id, bank]));
+    this.orderedQuestionsByBankId = new Map();
+    this.sectionsByBankId = new Map();
+
+    for (const bank of banks) {
+      const orderedQuestions = QUESTION_TYPE_ORDER.flatMap((type) =>
+        bank.questions.filter((question) => question.type === type),
+      );
+      let startPosition = 1;
+      const sections = QUESTION_TYPE_ORDER.flatMap<QuestionSection>((type) => {
+        const count = orderedQuestions.filter((question) => question.type === type).length;
+        if (count === 0) {
+          return [];
+        }
+        const section = { type, startPosition, count };
+        startPosition += count;
+        return [section];
+      });
+
+      this.orderedQuestionsByBankId.set(bank.id, orderedQuestions);
+      this.sectionsByBankId.set(bank.id, sections);
+    }
+
     this.summaries = banks
       .map((bank) => ({
         id: bank.id,
@@ -44,16 +70,18 @@ export class QuestionBankRepository {
 
   getQuestionPayload(bankId: string, position: number): QuestionPayload | undefined {
     const bank = this.banksById.get(bankId);
-    const question = bank?.questions[position - 1];
+    const orderedQuestions = this.orderedQuestionsByBankId.get(bankId);
+    const question = orderedQuestions?.[position - 1];
 
-    if (!bank || !question) {
+    if (!bank || !orderedQuestions || !question) {
       return undefined;
     }
 
     return {
       bank: { id: bank.id, title: bank.title, version: bank.version },
       position,
-      total: bank.questions.length,
+      total: orderedQuestions.length,
+      sections: (this.sectionsByBankId.get(bankId) ?? []).map((section) => ({ ...section })),
       question: {
         id: question.id,
         type: question.type,
